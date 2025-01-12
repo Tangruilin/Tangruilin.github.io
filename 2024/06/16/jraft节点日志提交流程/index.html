@@ -20,20 +20,22 @@
     var CONFIG = {"hostname":"example.com","root":"/","scheme":"Gemini","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":true},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
   </script>
 
-  <meta name="description" content="类型推导条款1: 理解模板类型推导条款1: 理解模板类型推导 这个条款没有特别需要关注的, 主要是对 C++ 的熟悉程度, 核心要关注的还是引用来信的推导; 条款2: 理解 auto 类型的推导条款二：理解auto类型推导 这里主要是希望关心: 1. 我们得明白 auto 对引用类型的推导; 2. 在一些特殊情况下, auto 的类型推导会退化为指针; 3. 在不太能理解 auto 类型推导的时候">
+  <meta name="description" content="背景这篇文章属于 jraft 阅读笔记的一部分, 这里主要是整理一下 jraft 中用户数据日志提交流程的代码。">
 <meta property="og:type" content="article">
-<meta property="og:title" content="Effective_Modren_C++思考">
-<meta property="og:url" content="http://example.com/2024/06/13/Effective-Modren-C-%E6%80%9D%E8%80%83/index.html">
+<meta property="og:title" content="jraft节点日志提交流程">
+<meta property="og:url" content="http://example.com/2024/06/16/jraft%E8%8A%82%E7%82%B9%E6%97%A5%E5%BF%97%E6%8F%90%E4%BA%A4%E6%B5%81%E7%A8%8B/index.html">
 <meta property="og:site_name" content="Hexo">
-<meta property="og:description" content="类型推导条款1: 理解模板类型推导条款1: 理解模板类型推导 这个条款没有特别需要关注的, 主要是对 C++ 的熟悉程度, 核心要关注的还是引用来信的推导; 条款2: 理解 auto 类型的推导条款二：理解auto类型推导 这里主要是希望关心: 1. 我们得明白 auto 对引用类型的推导; 2. 在一些特殊情况下, auto 的类型推导会退化为指针; 3. 在不太能理解 auto 类型推导的时候">
+<meta property="og:description" content="背景这篇文章属于 jraft 阅读笔记的一部分, 这里主要是整理一下 jraft 中用户数据日志提交流程的代码。">
 <meta property="og:locale" content="zh_CN">
-<meta property="article:published_time" content="2024-06-13T10:54:22.000Z">
-<meta property="article:modified_time" content="2024-06-13T11:00:30.403Z">
+<meta property="article:published_time" content="2024-06-16T10:13:12.000Z">
+<meta property="article:modified_time" content="2024-06-16T14:49:15.522Z">
 <meta property="article:author" content="John Doe">
-<meta property="article:tag" content="Effective Modern C++">
+<meta property="article:tag" content="raft">
+<meta property="article:tag" content="java">
+<meta property="article:tag" content="jraft">
 <meta name="twitter:card" content="summary">
 
-<link rel="canonical" href="http://example.com/2024/06/13/Effective-Modren-C-%E6%80%9D%E8%80%83/">
+<link rel="canonical" href="http://example.com/2024/06/16/jraft%E8%8A%82%E7%82%B9%E6%97%A5%E5%BF%97%E6%8F%90%E4%BA%A4%E6%B5%81%E7%A8%8B/">
 
 
 <script id="page-configurations">
@@ -46,7 +48,7 @@
   };
 </script>
 
-  <title>Effective_Modren_C++思考 | Hexo</title>
+  <title>jraft节点日志提交流程 | Hexo</title>
   
 
 
@@ -161,7 +163,7 @@
   
   
   <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="http://example.com/2024/06/13/Effective-Modren-C-%E6%80%9D%E8%80%83/">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2024/06/16/jraft%E8%8A%82%E7%82%B9%E6%97%A5%E5%BF%97%E6%8F%90%E4%BA%A4%E6%B5%81%E7%A8%8B/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -174,7 +176,7 @@
     </span>
       <header class="post-header">
         <h1 class="post-title" itemprop="name headline">
-          Effective_Modren_C++思考
+          jraft节点日志提交流程
         </h1>
 
         <div class="post-meta">
@@ -185,7 +187,7 @@
               <span class="post-meta-item-text">发表于</span>
               
 
-              <time title="创建时间：2024-06-13 18:54:22 / 修改时间：19:00:30" itemprop="dateCreated datePublished" datetime="2024-06-13T18:54:22+08:00">2024-06-13</time>
+              <time title="创建时间：2024-06-16 18:13:12 / 修改时间：22:49:15" itemprop="dateCreated datePublished" datetime="2024-06-16T18:13:12+08:00">2024-06-16</time>
             </span>
 
           <br>
@@ -194,7 +196,7 @@
                 <i class="far fa-file-word"></i>
               </span>
                 <span class="post-meta-item-text">本文字数：</span>
-              <span>171</span>
+              <span>394</span>
             </span>
             <span class="post-meta-item" title="阅读时长">
               <span class="post-meta-item-icon">
@@ -213,11 +215,17 @@
     <div class="post-body" itemprop="articleBody">
 
       
-        <h2 id="类型推导"><a href="#类型推导" class="headerlink" title="类型推导"></a>类型推导</h2><h3 id="条款1-理解模板类型推导"><a href="#条款1-理解模板类型推导" class="headerlink" title="条款1: 理解模板类型推导"></a>条款1: 理解模板类型推导</h3><p><a target="_blank" rel="noopener" href="https://cntransgroup.github.io/EffectiveModernCppChinese/1.DeducingTypes/item1.html">条款1: 理解模板类型推导</a></p>
-<p>这个条款没有特别需要关注的, 主要是对 C++ 的熟悉程度, 核心要关注的还是引用来信的推导;</p>
-<h3 id="条款2-理解-auto-类型的推导"><a href="#条款2-理解-auto-类型的推导" class="headerlink" title="条款2: 理解 auto 类型的推导"></a>条款2: 理解 auto 类型的推导</h3><p><a target="_blank" rel="noopener" href="https://cntransgroup.github.io/EffectiveModernCppChinese/1.DeducingTypes/item2.html#%E6%9D%A1%E6%AC%BE%E4%BA%8C%E7%90%86%E8%A7%A3auto%E7%B1%BB%E5%9E%8B%E6%8E%A8%E5%AF%BC">条款二：理解auto类型推导</a></p>
-<p>这里主要是希望关心: 1. 我们得明白 auto 对引用类型的推导; 2. 在一些特殊情况下, auto 的类型推导会退化为指针; 3. 在不太能理解 auto 类型推导的时候, 还是尽量不要使用 auto, 有些时候 auto 的推导确实会有很大的歧义;</p>
-<h3 id=""><a href="#" class="headerlink" title=""></a></h3>
+        <h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>这篇文章属于 jraft 阅读笔记的一部分, 这里主要是整理一下 jraft 中用户数据日志提交流程的代码。</p>
+<span id="more"></span>
+<h2 id="日志生成流程"><a href="#日志生成流程" class="headerlink" title="日志生成流程"></a>日志生成流程</h2><p>在 jraft 中, 会使用 <code>Node</code> 这个接口来表示一个 Raft 节点, 同时提供了 <code>NodeImpl</code> 的实现(ps: java 中似乎很少看到这类写法, 反倒是 C++ 中看到的比较多, 看样子 jraft 的最初的一批作者是 C++ 选手?)</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">apply</span><span class="params">(<span class="keyword">final</span> Task task)</span></span><br></pre></td></tr></table></figure>
+
+<p>接口的声明如上所示, <code>task</code> 中应该是会包含用户的数据;</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">apply</span><span class="params">(<span class="keyword">final</span> Task task)</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> (<span class="built_in">this</span>.shutdownLatch != <span class="literal">null</span>) &#123;</span><br><span class="line">        ThreadPoolsFactory.runClosureInThread(<span class="built_in">this</span>.groupId, task.getDone(), <span class="keyword">new</span> <span class="title class_">Status</span>(RaftError.ENODESHUTDOWN, <span class="string">&quot;Node is shutting down.&quot;</span>));</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">IllegalStateException</span>(<span class="string">&quot;Node is shutting down&quot;</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    Requires.requireNonNull(task, <span class="string">&quot;Null task&quot;</span>);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">final</span> <span class="type">LogEntry</span> <span class="variable">entry</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">LogEntry</span>();</span><br><span class="line">    entry.setData(task.getData());</span><br><span class="line"></span><br><span class="line">    <span class="keyword">final</span> EventTranslator&lt;LogEntryAndClosure&gt; translator = (event, sequence) -&gt; &#123;</span><br><span class="line">      event.reset();</span><br><span class="line">      event.done = task.getDone();</span><br><span class="line">      event.entry = entry;</span><br><span class="line">      event.expectedTerm = task.getExpectedTerm();</span><br><span class="line">    &#125;;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">switch</span>(<span class="built_in">this</span>.options.getApplyTaskMode()) &#123;</span><br><span class="line">      <span class="keyword">case</span> Blocking:</span><br><span class="line">        <span class="built_in">this</span>.applyQueue.publishEvent(translator);</span><br><span class="line">        <span class="keyword">break</span>;</span><br><span class="line">      <span class="keyword">case</span> NonBlocking:</span><br><span class="line">      <span class="keyword">default</span>:</span><br><span class="line">        <span class="keyword">if</span> (!<span class="built_in">this</span>.applyQueue.tryPublishEvent(translator)) &#123;</span><br><span class="line">          <span class="type">String</span> <span class="variable">errorMsg</span> <span class="operator">=</span> <span class="string">&quot;Node is busy, has too many tasks, queue is full and bufferSize=&quot;</span>+ <span class="built_in">this</span>.applyQueue.getBufferSize();</span><br><span class="line">            ThreadPoolsFactory.runClosureInThread(<span class="built_in">this</span>.groupId, task.getDone(),</span><br><span class="line">              <span class="keyword">new</span> <span class="title class_">Status</span>(RaftError.EBUSY, errorMsg));</span><br><span class="line">          LOG.warn(<span class="string">&quot;Node &#123;&#125; applyQueue is overload.&quot;</span>, getNodeId());</span><br><span class="line">          <span class="built_in">this</span>.metrics.recordTimes(<span class="string">&quot;apply-task-overload-times&quot;</span>, <span class="number">1</span>);</span><br><span class="line">          <span class="keyword">if</span>(task.getDone() == <span class="literal">null</span>) &#123;</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">OverloadException</span>(errorMsg);</span><br><span class="line">          &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">break</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>完整的代码如上所示: NodeImpl#apply 接口实现的并不是非常复杂, apply 主要是将用户的 task 进行编码, 然后使用 applyQueue 将任务进行提交, jraft 中的 Node 支持阻塞任务和非阻塞任务两种, 两者主要差别主要在于 <code>sequencer</code> 中如何取出下一个 sequence, 对于非阻塞模式, 节点会在获取失败的时候抛出异常。</p>
+<p>当一个节点竞选 Leader 成功之后会调用 ReplicatorGroup#addReplicator 方法建立到各个 Follower 节点之间的复制关系</p>
+
     </div>
 
     
@@ -232,7 +240,7 @@
   </li>
   <li class="post-copyright-link">
     <strong>本文链接：</strong>
-    <a href="http://example.com/2024/06/13/Effective-Modren-C-%E6%80%9D%E8%80%83/" title="Effective_Modren_C++思考">http://example.com/2024/06/13/Effective-Modren-C-思考/</a>
+    <a href="http://example.com/2024/06/16/jraft%E8%8A%82%E7%82%B9%E6%97%A5%E5%BF%97%E6%8F%90%E4%BA%A4%E6%B5%81%E7%A8%8B/" title="jraft节点日志提交流程">http://example.com/2024/06/16/jraft节点日志提交流程/</a>
   </li>
   <li class="post-copyright-license">
     <strong>版权声明： </strong>本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="noopener" target="_blank"><i class="fab fa-fw fa-creative-commons"></i>BY-NC-SA</a> 许可协议。转载请注明出处！
@@ -243,7 +251,9 @@
 
       <footer class="post-footer">
           <div class="post-tags">
-              <a href="/tags/Effective-Modern-C/" rel="tag"># Effective Modern C++</a>
+              <a href="/tags/raft/" rel="tag"># raft</a>
+              <a href="/tags/java/" rel="tag"># java</a>
+              <a href="/tags/jraft/" rel="tag"># jraft</a>
           </div>
 
         
@@ -252,12 +262,12 @@
         
     <div class="post-nav">
       <div class="post-nav-item">
-    <a href="/2024/06/12/%E6%9C%BA%E5%99%A8%E5%AD%A6%E4%B9%A0%E5%85%A5%E9%97%A8/" rel="prev" title="机器学习入门">
-      <i class="fa fa-chevron-left"></i> 机器学习入门
+    <a href="/2024/06/16/jraft%E4%BB%A3%E7%A0%81%E9%98%85%E8%AF%BB%E7%AC%94%E8%AE%B0/" rel="prev" title="jraft代码阅读笔记">
+      <i class="fa fa-chevron-left"></i> jraft代码阅读笔记
     </a></div>
       <div class="post-nav-item">
-    <a href="/2024/06/16/jraft%E4%BB%A3%E7%A0%81%E9%98%85%E8%AF%BB%E7%AC%94%E8%AE%B0/" rel="next" title="jraft代码阅读笔记">
-      jraft代码阅读笔记 <i class="fa fa-chevron-right"></i>
+    <a href="/2024/06/17/raft%E7%AE%97%E6%B3%95%E7%AE%80%E5%8D%95%E4%BB%8B%E7%BB%8D/" rel="next" title="raft算法简单介绍">
+      raft算法简单介绍 <i class="fa fa-chevron-right"></i>
     </a></div>
     </div>
       </footer>
@@ -317,7 +327,7 @@
 
       <!--noindex-->
       <div class="post-toc-wrap sidebar-panel">
-          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%B1%BB%E5%9E%8B%E6%8E%A8%E5%AF%BC"><span class="nav-number">1.</span> <span class="nav-text">类型推导</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%9D%A1%E6%AC%BE1-%E7%90%86%E8%A7%A3%E6%A8%A1%E6%9D%BF%E7%B1%BB%E5%9E%8B%E6%8E%A8%E5%AF%BC"><span class="nav-number">1.1.</span> <span class="nav-text">条款1: 理解模板类型推导</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%9D%A1%E6%AC%BE2-%E7%90%86%E8%A7%A3-auto-%E7%B1%BB%E5%9E%8B%E7%9A%84%E6%8E%A8%E5%AF%BC"><span class="nav-number">1.2.</span> <span class="nav-text">条款2: 理解 auto 类型的推导</span></a></li><li class="nav-item nav-level-3"><a class="nav-link"><span class="nav-number">1.3.</span> <span class="nav-text"></span></a></li></ol></li></ol></div>
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%97%A5%E5%BF%97%E7%94%9F%E6%88%90%E6%B5%81%E7%A8%8B"><span class="nav-number">2.</span> <span class="nav-text">日志生成流程</span></a></li></ol></div>
       </div>
       <!--/noindex-->
 
