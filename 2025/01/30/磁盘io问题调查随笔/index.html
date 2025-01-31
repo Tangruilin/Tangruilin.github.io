@@ -20,20 +20,25 @@
     var CONFIG = {"hostname":"example.com","root":"/","scheme":"Gemini","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":true},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
   </script>
 
-  <meta name="description" content="类型推导条款1: 理解模板类型推导条款1: 理解模板类型推导 这个条款没有特别需要关注的, 主要是对 C++ 的熟悉程度, 核心要关注的还是引用来信的推导; 条款2: 理解 auto 类型的推导条款二：理解auto类型推导 这里主要是希望关心: 1. 我们得明白 auto 对引用类型的推导; 2. 在一些特殊情况下, auto 的类型推导会退化为指针; 3. 在不太能理解 auto 类型推导的时候">
+  <meta name="description" content="背景这里主要是记录一下对于磁盘 io 上的一些问题如何进行深入调查, 会基于 fio 模拟一个磁盘 io 负载高的场景, 然后分析这些 io 具体被写到了哪个文件中.">
 <meta property="og:type" content="article">
-<meta property="og:title" content="Effective_Modren_C++思考">
-<meta property="og:url" content="http://example.com/2024/06/13/Effective-Modren-C-%E6%80%9D%E8%80%83/index.html">
+<meta property="og:title" content="磁盘io问题调查随笔">
+<meta property="og:url" content="http://example.com/2025/01/30/%E7%A3%81%E7%9B%98io%E9%97%AE%E9%A2%98%E8%B0%83%E6%9F%A5%E9%9A%8F%E7%AC%94/index.html">
 <meta property="og:site_name" content="Hexo">
-<meta property="og:description" content="类型推导条款1: 理解模板类型推导条款1: 理解模板类型推导 这个条款没有特别需要关注的, 主要是对 C++ 的熟悉程度, 核心要关注的还是引用来信的推导; 条款2: 理解 auto 类型的推导条款二：理解auto类型推导 这里主要是希望关心: 1. 我们得明白 auto 对引用类型的推导; 2. 在一些特殊情况下, auto 的类型推导会退化为指针; 3. 在不太能理解 auto 类型推导的时候">
+<meta property="og:description" content="背景这里主要是记录一下对于磁盘 io 上的一些问题如何进行深入调查, 会基于 fio 模拟一个磁盘 io 负载高的场景, 然后分析这些 io 具体被写到了哪个文件中.">
 <meta property="og:locale" content="zh_CN">
-<meta property="article:published_time" content="2024-06-13T10:54:22.000Z">
-<meta property="article:modified_time" content="2025-01-12T14:10:44.484Z">
+<meta property="og:image" content="https://raw.githubusercontent.com/Tangruilin/GithubImages/main/img20250131152801.png?token=AFUOMM23BGEAW7B7QK4VHO3HTR54E">
+<meta property="og:image" content="https://raw.githubusercontent.com/Tangruilin/GithubImages/main/img20250131183550.png?token=AFUOMM5BWRLM66XUNIBS5ZTHTST4K">
+<meta property="og:image" content="https://raw.githubusercontent.com/Tangruilin/GithubImages/main/img20250131183733.png?token=AFUOMM7PCFFNZYQVF5TDLHDHTSUCY">
+<meta property="og:image" content="https://raw.githubusercontent.com/Tangruilin/GithubImages/main/img20250131183647.png?token=AFUOMMZOPT2EJUCJDWUNRYDHTST76">
+<meta property="article:published_time" content="2025-01-30T13:39:49.000Z">
+<meta property="article:modified_time" content="2025-01-31T10:45:36.427Z">
 <meta property="article:author" content="John Doe">
-<meta property="article:tag" content="Effective Modern C++">
+<meta property="article:tag" content="磁盘">
 <meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://raw.githubusercontent.com/Tangruilin/GithubImages/main/img20250131152801.png?token=AFUOMM23BGEAW7B7QK4VHO3HTR54E">
 
-<link rel="canonical" href="http://example.com/2024/06/13/Effective-Modren-C-%E6%80%9D%E8%80%83/">
+<link rel="canonical" href="http://example.com/2025/01/30/%E7%A3%81%E7%9B%98io%E9%97%AE%E9%A2%98%E8%B0%83%E6%9F%A5%E9%9A%8F%E7%AC%94/">
 
 
 <script id="page-configurations">
@@ -46,7 +51,7 @@
   };
 </script>
 
-  <title>Effective_Modren_C++思考 | Hexo</title>
+  <title>磁盘io问题调查随笔 | Hexo</title>
   
 
 
@@ -161,7 +166,7 @@
   
   
   <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="http://example.com/2024/06/13/Effective-Modren-C-%E6%80%9D%E8%80%83/">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2025/01/30/%E7%A3%81%E7%9B%98io%E9%97%AE%E9%A2%98%E8%B0%83%E6%9F%A5%E9%9A%8F%E7%AC%94/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -174,7 +179,7 @@
     </span>
       <header class="post-header">
         <h1 class="post-title" itemprop="name headline">
-          Effective_Modren_C++思考
+          磁盘io问题调查随笔
         </h1>
 
         <div class="post-meta">
@@ -184,14 +189,14 @@
               </span>
               <span class="post-meta-item-text">发表于</span>
 
-              <time title="创建时间：2024-06-13 18:54:22" itemprop="dateCreated datePublished" datetime="2024-06-13T18:54:22+08:00">2024-06-13</time>
+              <time title="创建时间：2025-01-30 21:39:49" itemprop="dateCreated datePublished" datetime="2025-01-30T21:39:49+08:00">2025-01-30</time>
             </span>
               <span class="post-meta-item">
                 <span class="post-meta-item-icon">
                   <i class="far fa-calendar-check"></i>
                 </span>
                 <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2025-01-12 22:10:44" itemprop="dateModified" datetime="2025-01-12T22:10:44+08:00">2025-01-12</time>
+                <time title="修改时间：2025-01-31 18:45:36" itemprop="dateModified" datetime="2025-01-31T18:45:36+08:00">2025-01-31</time>
               </span>
 
           <br>
@@ -200,14 +205,14 @@
                 <i class="far fa-file-word"></i>
               </span>
                 <span class="post-meta-item-text">本文字数：</span>
-              <span>171</span>
+              <span>712</span>
             </span>
             <span class="post-meta-item" title="阅读时长">
               <span class="post-meta-item-icon">
                 <i class="far fa-clock"></i>
               </span>
                 <span class="post-meta-item-text">阅读时长 &asymp;</span>
-              <span>1 分钟</span>
+              <span>3 分钟</span>
             </span>
 
         </div>
@@ -219,11 +224,31 @@
     <div class="post-body" itemprop="articleBody">
 
       
-        <h2 id="类型推导"><a href="#类型推导" class="headerlink" title="类型推导"></a>类型推导</h2><h3 id="条款1-理解模板类型推导"><a href="#条款1-理解模板类型推导" class="headerlink" title="条款1: 理解模板类型推导"></a>条款1: 理解模板类型推导</h3><p><a target="_blank" rel="noopener" href="https://cntransgroup.github.io/EffectiveModernCppChinese/1.DeducingTypes/item1.html">条款1: 理解模板类型推导</a></p>
-<p>这个条款没有特别需要关注的, 主要是对 C++ 的熟悉程度, 核心要关注的还是引用来信的推导;</p>
-<h3 id="条款2-理解-auto-类型的推导"><a href="#条款2-理解-auto-类型的推导" class="headerlink" title="条款2: 理解 auto 类型的推导"></a>条款2: 理解 auto 类型的推导</h3><p><a target="_blank" rel="noopener" href="https://cntransgroup.github.io/EffectiveModernCppChinese/1.DeducingTypes/item2.html#%E6%9D%A1%E6%AC%BE%E4%BA%8C%E7%90%86%E8%A7%A3auto%E7%B1%BB%E5%9E%8B%E6%8E%A8%E5%AF%BC">条款二：理解auto类型推导</a></p>
-<p>这里主要是希望关心: 1. 我们得明白 auto 对引用类型的推导; 2. 在一些特殊情况下, auto 的类型推导会退化为指针; 3. 在不太能理解 auto 类型推导的时候, 还是尽量不要使用 auto, 有些时候 auto 的推导确实会有很大的歧义;</p>
-<h3 id=""><a href="#" class="headerlink" title=""></a></h3>
+        <h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>这里主要是记录一下对于磁盘 io 上的一些问题如何进行深入调查, 会基于 fio 模拟一个磁盘 io 负载高的场景, 然后分析这些 io 具体被写到了哪个文件中.</p>
+<span id="more"></span>
+<p>主要涉及到的工具有:</p>
+<ol>
+<li>iostat。该工具主要用来记录磁盘的 io 情况, 可以用来查看磁盘负载是否偏高;</li>
+<li>lsblk。该工具主要用来查看磁盘的一些静态信息，比如此磁盘的 raid 情况, 磁盘的运行状态;</li>
+<li>blktrace。该工具用来记录一些磁盘的运行时信息, 主要可以针对单块磁盘记录磁盘上的 io 都写到了哪个 lba;</li>
+<li>blkparse。配合 blktrace 使用, 用来解析 blktrace 记录到的磁盘信息;</li>
+<li>filefrag。filefrag 可以确认一个文件存放在磁盘的哪一个块上, 与 blktrace 中查到的信息进行结合, 可以确认是哪个文件的 io 比较活跃;</li>
+</ol>
+<h2 id="使用方式简单说明"><a href="#使用方式简单说明" class="headerlink" title="使用方式简单说明"></a>使用方式简单说明</h2><p>为了方便测试, 这里用 fio 模拟磁盘高负载情况, fio 命令如下所示:</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">fio --name=max_load --rw=write --bs=1M --size=3G --numjobs=8 --iodepth=32 --runtime=300 --time_based --filename=/root/io_test/max_load_file --direct=1 --group_reporting</span><br></pre></td></tr></table></figure>
+
+<p>该命令会使用 8 个 jobs, 每个 job 的队列深度为 32, 进行 io 的下发, 通常已经足够打满磁盘 io 负载。<br>    在只是怀疑有磁盘问题的情况下, 通常可以直接使用 iostat 进行定位。<br><img src="https://raw.githubusercontent.com/Tangruilin/GithubImages/main/img20250131152801.png?token=AFUOMM23BGEAW7B7QK4VHO3HTR54E"><br>如图所示便是 iostat 中看到的情况, 可以看到 sda 上 io util 达到 100%, 说明此刻这块磁盘上的负载较高, 接下来我们需要进一步定位这块磁盘负载高的原因。<br>首先, 通过 blktrace 监控 vda 的 io 情况</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sudo blktrace -d /dev/vda -o trace_output -w 10</span><br></pre></td></tr></table></figure>
+
+<p>这条命令会记录 vda 这块磁盘 10 秒的 io 情况, 并将数据写到 trace_output* 中<br>通过 blkparse 可以查看文件中的内容:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sudo blkparse -i trace_output -o parsed_output.txt</span><br></pre></td></tr></table></figure>
+
+<p>这时会将 parse 的结果放到 parsed_output.txt 文件中, 文件的输出如图所示<br><img src="https://raw.githubusercontent.com/Tangruilin/GithubImages/main/img20250131183550.png?token=AFUOMM5BWRLM66XUNIBS5ZTHTST4K"><br>可以看到 io 都是由 fio 进程给出, 同时 iosize 为 <code>128 * 4k = 1M</code>, 与 fio 的参数一致<br>所以可以判断出, 这段时间这块盘上大部分 io 都是由 fio 写入;<br>然后选取头 811008, 通过 filefrag 进行过滤, 由于 lsblk 可以看到 vda 主要挂载在 &#x2F; 目录下, 所以执行:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">find / -<span class="built_in">type</span> f -<span class="built_in">exec</span> filefrag -v &#123;&#125; \; &gt; filefrag_output.txt</span><br></pre></td></tr></table></figure>
+
+<p>此时在 filefrag_output.txt 文件中可以看到 811008 的偏移块存在。<br><img src="https://raw.githubusercontent.com/Tangruilin/GithubImages/main/img20250131183733.png?token=AFUOMM7PCFFNZYQVF5TDLHDHTSUCY"><br><img src="https://raw.githubusercontent.com/Tangruilin/GithubImages/main/img20250131183647.png?token=AFUOMMZOPT2EJUCJDWUNRYDHTST76"></p>
+<p>同时可以看到  811008..    813055 中有 <code>2048 * 4k = 16M</code> 的连续数据均在此处, 说明 fio 确实把数据有写到这里。<br>至此, 基本可以确认, 磁盘的 io 负载是由 fio 导致, 同时 fio 将部分数据写到了 <code>/root/io_test/max_load_file</code> 这个文件中。</p>
+
     </div>
 
     
@@ -238,7 +263,7 @@
   </li>
   <li class="post-copyright-link">
     <strong>本文链接：</strong>
-    <a href="http://example.com/2024/06/13/Effective-Modren-C-%E6%80%9D%E8%80%83/" title="Effective_Modren_C++思考">http://example.com/2024/06/13/Effective-Modren-C-思考/</a>
+    <a href="http://example.com/2025/01/30/%E7%A3%81%E7%9B%98io%E9%97%AE%E9%A2%98%E8%B0%83%E6%9F%A5%E9%9A%8F%E7%AC%94/" title="磁盘io问题调查随笔">http://example.com/2025/01/30/磁盘io问题调查随笔/</a>
   </li>
   <li class="post-copyright-license">
     <strong>版权声明： </strong>本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="noopener" target="_blank"><i class="fab fa-fw fa-creative-commons"></i>BY-NC-SA</a> 许可协议。转载请注明出处！
@@ -249,7 +274,7 @@
 
       <footer class="post-footer">
           <div class="post-tags">
-              <a href="/tags/Effective-Modern-C/" rel="tag"># Effective Modern C++</a>
+              <a href="/tags/%E7%A3%81%E7%9B%98/" rel="tag"># 磁盘</a>
           </div>
 
         
@@ -258,13 +283,10 @@
         
     <div class="post-nav">
       <div class="post-nav-item">
-    <a href="/2024/06/12/%E6%9C%BA%E5%99%A8%E5%AD%A6%E4%B9%A0%E5%85%A5%E9%97%A8/" rel="prev" title="机器学习入门">
-      <i class="fa fa-chevron-left"></i> 机器学习入门
+    <a href="/2025/01/12/Combining-Buffered-I-O-and-Direct-I-O-in-Distributed-File-Systems%E9%98%85%E8%AF%BB/" rel="prev" title="Combining Buffered I/O and Direct I/O  in Distributed File Systems阅读">
+      <i class="fa fa-chevron-left"></i> Combining Buffered I/O and Direct I/O  in Distributed File Systems阅读
     </a></div>
-      <div class="post-nav-item">
-    <a href="/2024/06/16/jraft%E4%BB%A3%E7%A0%81%E9%98%85%E8%AF%BB%E7%AC%94%E8%AE%B0/" rel="next" title="jraft代码阅读笔记">
-      jraft代码阅读笔记 <i class="fa fa-chevron-right"></i>
-    </a></div>
+      <div class="post-nav-item"></div>
     </div>
       </footer>
     
@@ -323,7 +345,7 @@
 
       <!--noindex-->
       <div class="post-toc-wrap sidebar-panel">
-          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%B1%BB%E5%9E%8B%E6%8E%A8%E5%AF%BC"><span class="nav-number">1.</span> <span class="nav-text">类型推导</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%9D%A1%E6%AC%BE1-%E7%90%86%E8%A7%A3%E6%A8%A1%E6%9D%BF%E7%B1%BB%E5%9E%8B%E6%8E%A8%E5%AF%BC"><span class="nav-number">1.1.</span> <span class="nav-text">条款1: 理解模板类型推导</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%9D%A1%E6%AC%BE2-%E7%90%86%E8%A7%A3-auto-%E7%B1%BB%E5%9E%8B%E7%9A%84%E6%8E%A8%E5%AF%BC"><span class="nav-number">1.2.</span> <span class="nav-text">条款2: 理解 auto 类型的推导</span></a></li><li class="nav-item nav-level-3"><a class="nav-link"><span class="nav-number">1.3.</span> <span class="nav-text"></span></a></li></ol></li></ol></div>
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8%E6%96%B9%E5%BC%8F%E7%AE%80%E5%8D%95%E8%AF%B4%E6%98%8E"><span class="nav-number">2.</span> <span class="nav-text">使用方式简单说明</span></a></li></ol></div>
       </div>
       <!--/noindex-->
 
