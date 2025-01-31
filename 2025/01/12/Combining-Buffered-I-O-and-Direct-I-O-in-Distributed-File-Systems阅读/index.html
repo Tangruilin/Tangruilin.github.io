@@ -20,18 +20,18 @@
     var CONFIG = {"hostname":"tangruilin.github.io","root":"/","scheme":"Gemini","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":true},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
   </script>
 
-  <meta name="description" content="背景这篇文章主要是介绍了 联合 buffer io 和 direct io 的一些工作, 这篇文章主要分析了 buffer io 和 direct io 之间的优劣, 并且提出了一种联合 buffer io 和 direct io 的思路, 证明了结合两种 io 模式可以获得更好的吞吐。">
+  <meta name="description" content="背景这篇文章主要是介绍了 联合 buffer io 和 direct io 的一些工作, 分析了 buffer io 和 direct io 之间的优劣, 并且提出了一种联合 buffer io 和 direct io 的思路, 证明了结合两种 io 模式可以获得更好的吞吐。">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Combining Buffered I&#x2F;O and Direct I&#x2F;O  in Distributed File Systems阅读">
 <meta property="og:url" content="https://tangruilin.github.io/2025/01/12/Combining-Buffered-I-O-and-Direct-I-O-in-Distributed-File-Systems%E9%98%85%E8%AF%BB/index.html">
 <meta property="og:site_name" content="Hexo">
-<meta property="og:description" content="背景这篇文章主要是介绍了 联合 buffer io 和 direct io 的一些工作, 这篇文章主要分析了 buffer io 和 direct io 之间的优劣, 并且提出了一种联合 buffer io 和 direct io 的思路, 证明了结合两种 io 模式可以获得更好的吞吐。">
+<meta property="og:description" content="背景这篇文章主要是介绍了 联合 buffer io 和 direct io 的一些工作, 分析了 buffer io 和 direct io 之间的优劣, 并且提出了一种联合 buffer io 和 direct io 的思路, 证明了结合两种 io 模式可以获得更好的吞吐。">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:image" content="https://s21.ax1x.com/2025/01/31/pEZidsg.png">
 <meta property="og:image" content="https://s21.ax1x.com/2025/02/01/pEZEahn.png">
 <meta property="og:image" content="https://s21.ax1x.com/2025/02/01/pEZEDXT.png">
 <meta property="article:published_time" content="2025-01-12T14:20:12.000Z">
-<meta property="article:modified_time" content="2025-01-31T17:25:45.227Z">
+<meta property="article:modified_time" content="2025-01-31T17:30:11.124Z">
 <meta property="article:author" content="汤瑞麟">
 <meta property="article:tag" content="paper">
 <meta name="twitter:card" content="summary">
@@ -195,7 +195,7 @@
                   <i class="far fa-calendar-check"></i>
                 </span>
                 <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2025-02-01 01:25:45" itemprop="dateModified" datetime="2025-02-01T01:25:45+08:00">2025-02-01</time>
+                <time title="修改时间：2025-02-01 01:30:11" itemprop="dateModified" datetime="2025-02-01T01:30:11+08:00">2025-02-01</time>
               </span>
 
           <br>
@@ -204,7 +204,7 @@
                 <i class="far fa-file-word"></i>
               </span>
                 <span class="post-meta-item-text">本文字数：</span>
-              <span>453</span>
+              <span>447</span>
             </span>
             <span class="post-meta-item" title="阅读时长">
               <span class="post-meta-item-icon">
@@ -223,7 +223,7 @@
     <div class="post-body" itemprop="articleBody">
 
       
-        <h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>这篇文章主要是介绍了 <a target="_blank" rel="noopener" href="https://www.usenix.org/system/files/fast24-qian.pdf">联合 buffer io 和 direct io</a> 的一些工作, 这篇文章主要分析了 buffer io 和 direct io 之间的优劣, 并且提出了一种联合 buffer io 和 direct io 的思路, 证明了结合两种 io 模式可以获得更好的吞吐。</p>
+        <h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>这篇文章主要是介绍了 <a target="_blank" rel="noopener" href="https://www.usenix.org/system/files/fast24-qian.pdf">联合 buffer io 和 direct io</a> 的一些工作, 分析了 buffer io 和 direct io 之间的优劣, 并且提出了一种联合 buffer io 和 direct io 的思路, 证明了结合两种 io 模式可以获得更好的吞吐。</p>
 <span id="more"></span>
 
 <h2 id="对比"><a href="#对比" class="headerlink" title="对比"></a>对比</h2><p><a target="_blank" rel="noopener" href="https://imgse.com/i/pEZidsg"><img src="https://s21.ax1x.com/2025/01/31/pEZidsg.png" alt="pEZidsg.png"></a><br>文章先对 bio 和 dio 做了一些对比, 从图中就可以看到, 以 256K 为转折点<br>, 随着 iosize 的增加, dio 的吞吐会逐渐提升, bio 的变化相对平稳, 在 iosize 超过 256K 以后, direct io 的性能会开始优于 buffer io。</p>
