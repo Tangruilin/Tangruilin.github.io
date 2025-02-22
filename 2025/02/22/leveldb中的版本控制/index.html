@@ -21,25 +21,22 @@
     var CONFIG = {"hostname":"tangruilin.github.io","root":"/","scheme":"Gemini","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":true},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":true,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
   </script>
 
-  <meta name="description" content="背景这里主要是记录一下对于磁盘 io 上的一些问题如何进行深入调查, 会基于 fio 模拟一个磁盘 io 负载高的场景, 然后分析这些 io 具体被写到了哪个文件中.">
+  <meta name="description" content="背景版本控制和元信息管理, 在任何系统中都有着举足轻重的地。leveldb 中为了更好地做并发支持, 单独抽象出 Version 模块; 本文会整体梳理 leveldb 中 Version 模块的作用;">
 <meta property="og:type" content="article">
-<meta property="og:title" content="磁盘io问题调查随笔">
-<meta property="og:url" content="https://tangruilin.github.io/2025/01/30/%E7%A3%81%E7%9B%98io%E9%97%AE%E9%A2%98%E8%B0%83%E6%9F%A5%E9%9A%8F%E7%AC%94/index.html">
+<meta property="og:title" content="leveldb中的版本控制">
+<meta property="og:url" content="https://tangruilin.github.io/2025/02/22/leveldb%E4%B8%AD%E7%9A%84%E7%89%88%E6%9C%AC%E6%8E%A7%E5%88%B6/index.html">
 <meta property="og:site_name" content="Hexo">
-<meta property="og:description" content="背景这里主要是记录一下对于磁盘 io 上的一些问题如何进行深入调查, 会基于 fio 模拟一个磁盘 io 负载高的场景, 然后分析这些 io 具体被写到了哪个文件中.">
+<meta property="og:description" content="背景版本控制和元信息管理, 在任何系统中都有着举足轻重的地。leveldb 中为了更好地做并发支持, 单独抽象出 Version 模块; 本文会整体梳理 leveldb 中 Version 模块的作用;">
 <meta property="og:locale" content="zh_CN">
-<meta property="og:image" content="https://s21.ax1x.com/2025/01/31/pEZiEI1.png">
-<meta property="og:image" content="https://s21.ax1x.com/2025/01/31/pEZiZPx.png">
-<meta property="og:image" content="https://s21.ax1x.com/2025/01/31/pEZiiqJ.png">
-<meta property="og:image" content="https://s21.ax1x.com/2025/01/31/pEZikZ9.png">
-<meta property="article:published_time" content="2025-01-30T13:39:49.000Z">
-<meta property="article:modified_time" content="2025-02-05T06:50:16.536Z">
+<meta property="og:image" content="https://tangruilin.github.io/images/leveldb/leveldb%E4%B8%AD%E7%9A%84Version%E4%B8%8EVersionSet.svg">
+<meta property="article:published_time" content="2025-02-22T05:49:49.000Z">
+<meta property="article:modified_time" content="2025-02-22T11:20:14.080Z">
 <meta property="article:author" content="汤瑞麟">
-<meta property="article:tag" content="磁盘">
+<meta property="article:tag" content="leveldb">
 <meta name="twitter:card" content="summary">
-<meta name="twitter:image" content="https://s21.ax1x.com/2025/01/31/pEZiEI1.png">
+<meta name="twitter:image" content="https://tangruilin.github.io/images/leveldb/leveldb%E4%B8%AD%E7%9A%84Version%E4%B8%8EVersionSet.svg">
 
-<link rel="canonical" href="https://tangruilin.github.io/2025/01/30/%E7%A3%81%E7%9B%98io%E9%97%AE%E9%A2%98%E8%B0%83%E6%9F%A5%E9%9A%8F%E7%AC%94/">
+<link rel="canonical" href="https://tangruilin.github.io/2025/02/22/leveldb%E4%B8%AD%E7%9A%84%E7%89%88%E6%9C%AC%E6%8E%A7%E5%88%B6/">
 
 
 <script id="page-configurations">
@@ -52,7 +49,7 @@
   };
 </script>
 
-  <title>磁盘io问题调查随笔 | Hexo</title>
+  <title>leveldb中的版本控制 | Hexo</title>
   
 
 
@@ -167,7 +164,7 @@
   
   
   <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="https://tangruilin.github.io/2025/01/30/%E7%A3%81%E7%9B%98io%E9%97%AE%E9%A2%98%E8%B0%83%E6%9F%A5%E9%9A%8F%E7%AC%94/">
+    <link itemprop="mainEntityOfPage" href="https://tangruilin.github.io/2025/02/22/leveldb%E4%B8%AD%E7%9A%84%E7%89%88%E6%9C%AC%E6%8E%A7%E5%88%B6/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -180,7 +177,7 @@
     </span>
       <header class="post-header">
         <h1 class="post-title" itemprop="name headline">
-          磁盘io问题调查随笔
+          leveldb中的版本控制
         </h1>
 
         <div class="post-meta">
@@ -189,16 +186,10 @@
                 <i class="far fa-calendar"></i>
               </span>
               <span class="post-meta-item-text">发表于</span>
+              
 
-              <time title="创建时间：2025-01-30 21:39:49" itemprop="dateCreated datePublished" datetime="2025-01-30T21:39:49+08:00">2025-01-30</time>
+              <time title="创建时间：2025-02-22 13:49:49 / 修改时间：19:20:14" itemprop="dateCreated datePublished" datetime="2025-02-22T13:49:49+08:00">2025-02-22</time>
             </span>
-              <span class="post-meta-item">
-                <span class="post-meta-item-icon">
-                  <i class="far fa-calendar-check"></i>
-                </span>
-                <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2025-02-05 14:50:16" itemprop="dateModified" datetime="2025-02-05T14:50:16+08:00">2025-02-05</time>
-              </span>
 
           <br>
             <span class="post-meta-item" title="本文字数">
@@ -206,7 +197,7 @@
                 <i class="far fa-file-word"></i>
               </span>
                 <span class="post-meta-item-text">本文字数：</span>
-              <span>718</span>
+              <span>863</span>
             </span>
             <span class="post-meta-item" title="阅读时长">
               <span class="post-meta-item-icon">
@@ -225,30 +216,31 @@
     <div class="post-body" itemprop="articleBody">
 
       
-        <h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>这里主要是记录一下对于磁盘 io 上的一些问题如何进行深入调查, 会基于 fio 模拟一个磁盘 io 负载高的场景, 然后分析这些 io 具体被写到了哪个文件中.</p>
+        <h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>版本控制和元信息管理, 在任何系统中都有着举足轻重的地。leveldb 中为了更好地做并发支持, 单独抽象出 Version 模块; 本文会整体梳理 leveldb 中 Version 模块的作用;</p>
 <span id="more"></span>
-<p>主要涉及到的工具有:</p>
+
+<h2 id="作用"><a href="#作用" class="headerlink" title="作用"></a>作用</h2><p>leveldb 作为一个有着持久化能力的 LSM 数据库, 需要知道每一个 level 中都包含了哪些 LSM 文件; 重启后如何快速恢复到之前的状态; 这些能力都依赖于元数据管理模块, 在 leveldb 中, Version 模块则起到的下面几个作用:</p>
 <ol>
-<li>iostat。该工具主要用来记录磁盘的 io 情况, 可以用来查看磁盘负载是否偏高;</li>
-<li>lsblk。该工具主要用来查看磁盘的一些静态信息，比如此磁盘的 raid 情况, 磁盘的运行状态;</li>
-<li>blktrace。该工具用来记录一些磁盘的运行时信息, 主要可以针对单块磁盘记录磁盘上的 io 都写到了哪个 lba;</li>
-<li>blkparse。配合 blktrace 使用, 用来解析 blktrace 记录到的磁盘信息;</li>
-<li>filefrag。filefrag 可以确认一个文件存放在磁盘的哪一个块上, 与 blktrace 中查到的信息进行结合, 可以确认是哪个文件的 io 比较活跃;</li>
+<li>维护 SST 文件的索引层次信息, 记录了在 leveldb 中每一个 SST 文件所在的索引位置, 为读, 写，Compaction 等操作提供元数据支持;</li>
+<li>记录 Compaction 相关信息, 保证 Compaction 能在需要的时候被触发;</li>
+<li>保证数据库在宕机重启的情况下, 数据的信息可以不丢失;</li>
+<li>维护仍在使用的历史 Version 信息, 保证在进行 Compaction 的时候, 仍在被读的 sst 文件不被删除, 简化并发控制;</li>
 </ol>
-<h2 id="使用方式简单说明"><a href="#使用方式简单说明" class="headerlink" title="使用方式简单说明"></a>使用方式简单说明</h2><p>为了方便测试, 这里用 fio 模拟磁盘高负载情况, fio 命令如下所示:</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">fio --name=max_load --rw=write --bs=1M --size=3G --numjobs=8 --iodepth=32 --runtime=300 --time_based --filename=/root/io_test/max_load_file --direct=1 --group_reporting</span><br></pre></td></tr></table></figure>
-
-<p>该命令会使用 8 个 jobs, 每个 job 的队列深度为 32, 进行 io 的下发, 通常已经足够打满磁盘 io 负载。<br>    在只是怀疑有磁盘问题的情况下, 通常可以直接使用 iostat 进行定位。<br><a target="_blank" rel="noopener" href="https://imgse.com/i/pEZiEI1"><img src="https://s21.ax1x.com/2025/01/31/pEZiEI1.png" alt="pEZiEI1.png"></a><br>如图所示便是 iostat 中看到的情况, 可以看到 sda 上 io util 达到 100%, 说明此刻这块磁盘上的负载较高, 接下来我们需要进一步定位这块磁盘负载高的原因。<br>首先, 通过 blktrace 监控 vda 的 io 情况</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sudo blktrace -d /dev/vda -o trace_output -w 10</span><br></pre></td></tr></table></figure>
-
-<p>这条命令会记录 vda 这块磁盘 10 秒的 io 情况, 并将数据写到 trace_output* 中<br>通过 blkparse 可以查看文件中的内容:</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sudo blkparse -i trace_output -o parsed_output.txt</span><br></pre></td></tr></table></figure>
-
-<p>这时会将 parse 的结果放到 parsed_output.txt 文件中, 文件的输出如图所示<br><a target="_blank" rel="noopener" href="https://imgse.com/i/pEZiZPx"><img src="https://s21.ax1x.com/2025/01/31/pEZiZPx.png" alt="pEZiZPx.png"></a><br>可以看到 io 都是由 fio 进程给出, 同时 iosize 为 <code>128 * 4k = 1M</code>, 与 fio 的参数一致<br>所以可以判断出, 这段时间这块盘上大部分 io 都是由 fio 写入;<br>然后选取头 811008, 通过 filefrag 进行过滤, 由于 lsblk 可以看到 vda 主要挂载在 &#x2F; 目录下, 所以执行:</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">find / -<span class="built_in">type</span> f -<span class="built_in">exec</span> filefrag -v &#123;&#125; \; &gt; filefrag_output.txt</span><br></pre></td></tr></table></figure>
-
-<p>此时在 filefrag_output.txt 文件中可以看到 811008 的偏移块存在。<br><a target="_blank" rel="noopener" href="https://imgse.com/i/pEZiiqJ"><img src="https://s21.ax1x.com/2025/01/31/pEZiiqJ.png" alt="pEZiiqJ.png"></a><br><a target="_blank" rel="noopener" href="https://imgse.com/i/pEZikZ9"><img src="https://s21.ax1x.com/2025/01/31/pEZikZ9.png" alt="pEZikZ9.png"></a></p>
-<p>同时可以看到  811008..    813055 中有 <code>2048 * 4k = 16M</code> 的连续数据均在此处, 说明 fio 确实把数据有写到这里。<br>至此, 基本可以确认, 磁盘的 io 负载是由 fio 导致, 同时 fio 将部分数据写到了 <code>/root/io_test/max_load_file</code> 这个文件中。</p>
+<h2 id="实现"><a href="#实现" class="headerlink" title="实现"></a>实现</h2><p>leveldb 中, 为了实现元数据管理, 主要有三个核心的类: <code>Version</code>, <code>VersionSet</code>, <code>VersionEdit</code>, 他们的作用分别是:</p>
+<ol>
+<li>Version。Version 用来表示单个 leveldb 的某一个数据版本的元数据信息;</li>
+<li>VersionSet。VersionSet 表示整个 leveldb 数据库的所有元数据, 包含了多个 Version;</li>
+<li>VersionEdit。VersionEdit 更应该理解为 VersionDelta, 通常会用于 Version 发生变更的场景;</li>
+</ol>
+<h3 id="VersionSet-和-Version-的设计"><a href="#VersionSet-和-Version-的设计" class="headerlink" title="VersionSet 和 Version 的设计"></a>VersionSet 和 Version 的设计</h3><p>VersionSet 和 Version 的整体布局大致如下图所示:</p>
+<p><img src="/../images/leveldb/leveldb%E4%B8%AD%E7%9A%84Version%E4%B8%8EVersionSet.svg" alt="leveldb 中的 Version 和 VersionSet 之间的简单关系"><br><code>VersionSet</code> 表示整个数据库的所有存在的版本, <code>Version</code> 则静态表示一个版本, Version 之间会通过双向链表进行关联, 同时每一个 version 由 refs 来维持其引用计数, 当计数为 0 时, 该 version 自动从 VersionSet 中剔除, 其指向的数据文件也会在后台被 GC。<br>值得一提的是, <code>VersionSet</code> 中的 <code>prev_log_num</code> 在当前版本中已经废弃, 只是为了兼容老版本的持久化文件(manifest 文件的编解码)才被保留</p>
+<h3 id="VersionEdit-的设计"><a href="#VersionEdit-的设计" class="headerlink" title="VersionEdit 的设计"></a>VersionEdit 的设计</h3><p>VersionEdit 更应该叫做 VersionDelta, 理解这个结构体只需要记住 <code>Version + VersionEdit = Version + 1</code> 则可, 在使用上, VersionEdit 不会做实际的落盘动作(换句话说, 保存在 VersionEdit 中的数据都是尚未持久化的), 在 <code>VersionSet::Apply</code> 和 <code>VersionSet::LogAndApply</code>中, 变化的部分会被更新, 同时只有 <code>VersionSet::LogAndApply</code>中, 才会对 Version 内容做持久化。</p>
+<h2 id="总结和思考"><a href="#总结和思考" class="headerlink" title="总结和思考"></a>总结和思考</h2><p>对于整个 Version 模块的设计和演进, 整体上有三点可以思考的地方:</p>
+<ol>
+<li>软件系统的对象化思维, 在关系数据库中有通用的 <code>Catalog</code> 设计来做元数据的管理, leveldb这类 kv 数据库则自行设计了相对简单的 Version 模块, 这里体现了面向对象的思路;</li>
+<li>对于对象的变化处理。对于一个状态机(这里的 Version 就是一个状态机), 状态发生改变时, 其状态会由 改变前 –&gt; 改变中 –&gt; 改变后, 将模块设计为 base + delta 的方式, 可以有效避免频繁的状态改变带来版本膨胀;</li>
+<li>由于一个存储系统在完成后通常会需要服务多年, 其向前兼容性与向后兼容性一定要做充分的考虑。</li>
+</ol>
 
     </div>
 
@@ -264,7 +256,7 @@
   </li>
   <li class="post-copyright-link">
     <strong>本文链接：</strong>
-    <a href="https://tangruilin.github.io/2025/01/30/%E7%A3%81%E7%9B%98io%E9%97%AE%E9%A2%98%E8%B0%83%E6%9F%A5%E9%9A%8F%E7%AC%94/" title="磁盘io问题调查随笔">https://tangruilin.github.io/2025/01/30/磁盘io问题调查随笔/</a>
+    <a href="https://tangruilin.github.io/2025/02/22/leveldb%E4%B8%AD%E7%9A%84%E7%89%88%E6%9C%AC%E6%8E%A7%E5%88%B6/" title="leveldb中的版本控制">https://tangruilin.github.io/2025/02/22/leveldb中的版本控制/</a>
   </li>
   <li class="post-copyright-license">
     <strong>版权声明： </strong>本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="noopener" target="_blank"><i class="fab fa-fw fa-creative-commons"></i>BY-NC-SA</a> 许可协议。转载请注明出处！
@@ -275,7 +267,7 @@
 
       <footer class="post-footer">
           <div class="post-tags">
-              <a href="/tags/%E7%A3%81%E7%9B%98/" rel="tag"># 磁盘</a>
+              <a href="/tags/leveldb/" rel="tag"># leveldb</a>
           </div>
 
         
@@ -284,13 +276,10 @@
         
     <div class="post-nav">
       <div class="post-nav-item">
-    <a href="/2025/01/12/Combining-Buffered-I-O-and-Direct-I-O-in-Distributed-File-Systems%E9%98%85%E8%AF%BB/" rel="prev" title="Combining Buffered I/O and Direct I/O  in Distributed File Systems阅读">
-      <i class="fa fa-chevron-left"></i> Combining Buffered I/O and Direct I/O  in Distributed File Systems阅读
+    <a href="/2025/02/05/leveldb%E4%B8%AD%E7%9A%84%E8%BF%AD%E4%BB%A3%E5%99%A8%E8%AE%BE%E8%AE%A1/" rel="prev" title="leveldb中的迭代器设计">
+      <i class="fa fa-chevron-left"></i> leveldb中的迭代器设计
     </a></div>
-      <div class="post-nav-item">
-    <a href="/2025/02/05/leveldb%E4%B8%AD%E7%9A%84%E8%BF%AD%E4%BB%A3%E5%99%A8%E8%AE%BE%E8%AE%A1/" rel="next" title="leveldb中的迭代器设计">
-      leveldb中的迭代器设计 <i class="fa fa-chevron-right"></i>
-    </a></div>
+      <div class="post-nav-item"></div>
     </div>
       </footer>
     
@@ -349,7 +338,7 @@
 
       <!--noindex-->
       <div class="post-toc-wrap sidebar-panel">
-          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8%E6%96%B9%E5%BC%8F%E7%AE%80%E5%8D%95%E8%AF%B4%E6%98%8E"><span class="nav-number">2.</span> <span class="nav-text">使用方式简单说明</span></a></li></ol></div>
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BD%9C%E7%94%A8"><span class="nav-number">2.</span> <span class="nav-text">作用</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%AE%9E%E7%8E%B0"><span class="nav-number">3.</span> <span class="nav-text">实现</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#VersionSet-%E5%92%8C-Version-%E7%9A%84%E8%AE%BE%E8%AE%A1"><span class="nav-number">3.1.</span> <span class="nav-text">VersionSet 和 Version 的设计</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#VersionEdit-%E7%9A%84%E8%AE%BE%E8%AE%A1"><span class="nav-number">3.2.</span> <span class="nav-text">VersionEdit 的设计</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93%E5%92%8C%E6%80%9D%E8%80%83"><span class="nav-number">4.</span> <span class="nav-text">总结和思考</span></a></li></ol></div>
       </div>
       <!--/noindex-->
 
