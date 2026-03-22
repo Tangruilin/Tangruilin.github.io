@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 7.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+  <link rel="stylesheet" href="//cdn.jsdelivr.net/gh/fancyapps/fancybox@3/dist/jquery.fancybox.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"tangruilin.github.io","root":"/","scheme":"Gemini","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":true},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":true,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="本文由 AI 辅助编写  背景LevelDB 作为 LSM Tree 的经典实现，其设计初衷是针对 HDD 时代「随机写慢、顺序写快」的特点进行优化。但随着 SSD 的普及，存储硬件的特性发生了根本性变化，LSM Tree 的优势是否依然存在？本文从 LevelDB 的演进出发，分析 LSM Tree 和 B+ 树在 SSD 时代的优劣对比。 HDD 时代：LSM 的绝对优势在机械硬盘时代，随机">
+<meta property="og:type" content="article">
+<meta property="og:title" content="SSD时代下LSM与B+树的演进对比">
+<meta property="og:url" content="https://tangruilin.github.io/2026/03/23/SSD%E6%97%B6%E4%BB%A3%E4%B8%8BLSM%E4%B8%8EB+%E6%A0%91%E7%9A%84%E6%BC%94%E8%BF%9B%E5%AF%B9%E6%AF%94/index.html">
+<meta property="og:site_name" content="Hexo">
+<meta property="og:description" content="本文由 AI 辅助编写  背景LevelDB 作为 LSM Tree 的经典实现，其设计初衷是针对 HDD 时代「随机写慢、顺序写快」的特点进行优化。但随着 SSD 的普及，存储硬件的特性发生了根本性变化，LSM Tree 的优势是否依然存在？本文从 LevelDB 的演进出发，分析 LSM Tree 和 B+ 树在 SSD 时代的优劣对比。 HDD 时代：LSM 的绝对优势在机械硬盘时代，随机">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2026-03-22T17:15:00.000Z">
+<meta property="article:modified_time" content="2026-03-22T17:17:48.865Z">
+<meta property="article:author" content="汤瑞麟">
+<meta property="article:tag" content="leveldb">
+<meta property="article:tag" content="storage">
+<meta property="article:tag" content="lsm">
+<meta property="article:tag" content="b-tree">
+<meta property="article:tag" content="ssd">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="https://tangruilin.github.io/2026/03/23/SSD%E6%97%B6%E4%BB%A3%E4%B8%8BLSM%E4%B8%8EB+%E6%A0%91%E7%9A%84%E6%BC%94%E8%BF%9B%E5%AF%B9%E6%AF%94/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>SSD时代下LSM与B+树的演进对比 | Hexo</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<style>.darkmode--activated{--body-bg-color:#282828;--content-bg-color:#333;--card-bg-color:#555;--text-color:#ccc;--blockquote-color:#bbb;--link-color:#ccc;--link-hover-color:#eee;--brand-color:#ddd;--brand-hover-color:#ddd;--table-row-odd-bg-color:#282828;--table-row-hover-bg-color:#363636;--menu-item-bg-color:#555;--btn-default-bg:#222;--btn-default-color:#ccc;--btn-default-border-color:#555;--btn-default-hover-bg:#666;--btn-default-hover-color:#ccc;--btn-default-hover-border-color:#666;--highlight-background:#282b2e;--highlight-foreground:#a9b7c6;--highlight-gutter-background:#34393d;--highlight-gutter-foreground:#9ca9b6}.darkmode--activated img{opacity:.75}.darkmode--activated img:hover{opacity:.9}.darkmode--activated code{color:#69dbdc;background:0 0}button.darkmode-toggle{z-index:9999}.darkmode-ignore,img{display:flex!important}.beian img{display:inline-block!important}</style></head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Hexo</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://tangruilin.github.io/2026/03/23/SSD%E6%97%B6%E4%BB%A3%E4%B8%8BLSM%E4%B8%8EB+%E6%A0%91%E7%9A%84%E6%BC%94%E8%BF%9B%E5%AF%B9%E6%AF%94/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="汤瑞麟">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Hexo">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          SSD时代下LSM与B+树的演进对比
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+              
+
+              <time title="创建时间：2026-03-23 01:15:00 / 修改时间：01:17:48" itemprop="dateCreated datePublished" datetime="2026-03-23T01:15:00+08:00">2026-03-23</time>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>1.4k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>5 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <blockquote>
+<p>本文由 AI 辅助编写</p>
+</blockquote>
+<h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>LevelDB 作为 LSM Tree 的经典实现，其设计初衷是针对 HDD 时代「随机写慢、顺序写快」的特点进行优化。但随着 SSD 的普及，存储硬件的特性发生了根本性变化，LSM Tree 的优势是否依然存在？本文从 LevelDB 的演进出发，分析 LSM Tree 和 B+ 树在 SSD 时代的优劣对比。</p>
+<h2 id="HDD-时代：LSM-的绝对优势"><a href="#HDD-时代：LSM-的绝对优势" class="headerlink" title="HDD 时代：LSM 的绝对优势"></a>HDD 时代：LSM 的绝对优势</h2><p>在机械硬盘时代，随机写和顺序写的性能差距巨大：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">HDD 随机写：~10ms（寻道 + 旋转延迟）</span><br><span class="line">HDD 顺序写：~100MB/s</span><br><span class="line"></span><br><span class="line">随机写 1GB：~1000 秒</span><br><span class="line">顺序写 1GB：~10 秒</span><br><span class="line"></span><br><span class="line">差距：100 倍</span><br></pre></td></tr></table></figure>
+
+<p>LSM Tree 的核心思想就是将随机写转换为顺序写：写入先入 MemTable（内存），再批量刷盘。这个设计在 HDD 上带来了巨大的性能优势。</p>
+<p>相比之下，B+ 树的随机写（页分裂、节点更新）在 HDD 上性能惨淡。</p>
+<h2 id="SSD-时代：LSM-优势被削弱"><a href="#SSD-时代：LSM-优势被削弱" class="headerlink" title="SSD 时代：LSM 优势被削弱"></a>SSD 时代：LSM 优势被削弱</h2><p>SSD 改变了硬件特性：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">SSD 随机写：~50μs</span><br><span class="line">SSD 顺序写：~3GB/s</span><br><span class="line"></span><br><span class="line">随机写 1GB：~13 秒</span><br><span class="line">顺序写 1GB：~0.3 秒</span><br><span class="line"></span><br><span class="line">差距：~40 倍（而非 HDD 的 100 倍）</span><br></pre></td></tr></table></figure>
+
+<p><strong>随机写和顺序写的差距大幅缩小，LSM 的核心优势减弱。</strong></p>
+<p>更严重的是，LSM 的 Compaction 机制带来严重的写放大：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">LSM 写放大：</span><br><span class="line">- Leveled Compaction: 10-50 倍</span><br><span class="line">- 即用户写入 1TB，实际磁盘写入 10-50TB</span><br><span class="line"></span><br><span class="line">SSD 寿命敏感：</span><br><span class="line">- SSD 额定写入量有限（如 1 PBW）</span><br><span class="line">- 写放大直接影响硬件寿命</span><br></pre></td></tr></table></figure>
+
+<p>相比之下，B+ 树的写放大只有 2-3 倍（主要是页分裂开销）。</p>
+<h3 id="SSD-时代初步对比"><a href="#SSD-时代初步对比" class="headerlink" title="SSD 时代初步对比"></a>SSD 时代初步对比</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>LSM</th>
+<th>B+ 树</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>写放大</td>
+<td>高（10-50x）</td>
+<td>低（2-3x）</td>
+</tr>
+<tr>
+<td>随机写优势</td>
+<td>减弱</td>
+<td>不明显</td>
+</tr>
+<tr>
+<td>读延迟</td>
+<td>不稳定（Compaction 抖动）</td>
+<td>稳定</td>
+</tr>
+<tr>
+<td>SSD 寿命</td>
+<td>不友好</td>
+<td>相对友好</td>
+</tr>
+</tbody></table>
+<p><strong>在 SSD 普及初期，LSM 整体逊色于 B+ 树。</strong></p>
+<h2 id="转机：Key-Value-分离"><a href="#转机：Key-Value-分离" class="headerlink" title="转机：Key-Value 分离"></a>转机：Key-Value 分离</h2><p>WiscKey 论文（FAST ‘16）提出了 Key-Value 分离的思路，为 LSM 在 SSD 时代找到了新出路：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">传统 LSM：</span><br><span class="line">┌─────────────────────────────────────────┐</span><br><span class="line">│  SSTable                                │</span><br><span class="line">│  [Key1 + Value1][Key2 + Value2]...      │</span><br><span class="line">│  Compaction 时 Key + Value 一起重写     │</span><br><span class="line">│  写放大 = f(总数据量)                    │</span><br><span class="line">└─────────────────────────────────────────┘</span><br><span class="line"></span><br><span class="line">Key-Value 分离（WiscKey）：</span><br><span class="line">┌─────────────────────────────────────────┐</span><br><span class="line">│  LSM (只存 Key)                          │</span><br><span class="line">│  [Key1 → addr1][Key2 → addr2]...        │</span><br><span class="line">│  数据量小 → Compaction 开销低            │</span><br><span class="line">└─────────────────────────────────────────┘</span><br><span class="line">         │</span><br><span class="line">         ↓</span><br><span class="line">┌─────────────────────────────────────────┐</span><br><span class="line">│  vLog (Value Log，追加写)                │</span><br><span class="line">│  [Value1][Value2][Value3]...            │</span><br><span class="line">│  顺序追加，无需 Compaction               │</span><br><span class="line">└─────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<h3 id="写放大大幅降低"><a href="#写放大大幅降低" class="headerlink" title="写放大大幅降低"></a>写放大大幅降低</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">假设：Key = 16 字节，Value = 1 KB</span><br><span class="line"></span><br><span class="line">传统 LSM 写放大：</span><br><span class="line">- Compaction 针对 Key + Value</span><br><span class="line">- 写放大 ≈ 10-50 倍（针对总数据量）</span><br><span class="line"></span><br><span class="line">Key-Value 分离写放大：</span><br><span class="line">- Compaction 只针对 Key（数据量减少 64 倍）</span><br><span class="line">- Value 追加写，无 Compaction</span><br><span class="line">- 写放大降低 ~10 倍</span><br></pre></td></tr></table></figure>
+
+<h3 id="多一次-IO？内存索引解决"><a href="#多一次-IO？内存索引解决" class="headerlink" title="多一次 IO？内存索引解决"></a>多一次 IO？内存索引解决</h3><p>Key-Value 分离的代价是读取时多一次 IO（先查 Key 得到地址，再读 Value）。但如果 Key 可以全部放入内存：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">内存索引 + vLog：</span><br><span class="line">┌─────────────────────────────────────────┐</span><br><span class="line">│  内存 Hash 索引                          │</span><br><span class="line">│  Key → vLog 地址                        │</span><br><span class="line">│  查找：O(1)，0 IO                       │</span><br><span class="line">└─────────────────────────────────────────┘</span><br><span class="line">         │</span><br><span class="line">         ↓</span><br><span class="line">┌─────────────────────────────────────────┐</span><br><span class="line">│  vLog                                    │</span><br><span class="line">│  读取：1 IO                              │</span><br><span class="line">└─────────────────────────────────────────┘</span><br><span class="line"></span><br><span class="line">总计：1 次 IO，与传统 LSM 相同甚至更快</span><br></pre></td></tr></table></figure>
+
+<p>这正是 Bitcask 存储引擎的设计，在实践中已验证可行。</p>
+<h3 id="热点写入：LSM-的独特优势"><a href="#热点写入：LSM-的独特优势" class="headerlink" title="热点写入：LSM 的独特优势"></a>热点写入：LSM 的独特优势</h3><p>B+ 树存在局部热点问题：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">场景：同一 Key 被频繁更新</span><br><span class="line"></span><br><span class="line">B+ 树：</span><br><span class="line">更新 Key1 → 修改 Page A</span><br><span class="line">更新 Key1 → 修改 Page A（同一页！）</span><br><span class="line">更新 Key1 → 修改 Page A</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">SSD 视角：</span><br><span class="line">同一物理块被反复擦写</span><br><span class="line">即使有 wear leveling，局部压力仍然大</span><br></pre></td></tr></table></figure>
+
+<p>LSM 的追加写天然避免热点：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">LSM：</span><br><span class="line">更新 Key1 → 写入新位置</span><br><span class="line">更新 Key1 → 写入新位置</span><br><span class="line">更新 Key1 → 写入新位置</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">SSD 视角：</span><br><span class="line">每次写入不同物理位置</span><br><span class="line">磨损更均匀</span><br></pre></td></tr></table></figure>
+
+<p><strong>Key-Value 分离的 LSM 在随机写场景下重新获得优势：写放大低 + 磨损均匀。</strong></p>
+<h2 id="范围查询：LSM-的软肋"><a href="#范围查询：LSM-的软肋" class="headerlink" title="范围查询：LSM 的软肋"></a>范围查询：LSM 的软肋</h2><p>Key-Value 分离并非万能，范围查询是其明显劣势：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">B+ 树聚簇索引范围查询：</span><br><span class="line">[Leaf: K1+Row1][Leaf: K2+Row2][Leaf: K3+Row3]...</span><br><span class="line"> └────────────────────────────────────────┘</span><br><span class="line">              顺序读，预取友好</span><br><span class="line"></span><br><span class="line">Key-Value 分离 LSM 范围查询：</span><br><span class="line">内存索引：Key1 → addr1, Key2 → addr2, Key3 → addr3...</span><br><span class="line">vLog：    [Value2][Value1][Value3]...（无序）</span><br><span class="line">               ↓        ↓        ↓</span><br><span class="line">             IO1      IO2      IO3</span><br><span class="line">              随机读，无法预取</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>B+ 树聚簇索引</th>
+<th>Key-Value 分离 LSM</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>范围查询 10 条</td>
+<td>~5 IO（顺序）</td>
+<td>~10 IO（随机）</td>
+</tr>
+<tr>
+<td>范围查询 100 条</td>
+<td>~8 IO（顺序）</td>
+<td>~100 IO（随机）</td>
+</tr>
+<tr>
+<td>范围查询 1000 条</td>
+<td>~15 IO（顺序）</td>
+<td>~1000 IO（随机）</td>
+</tr>
+</tbody></table>
+<p><strong>范围越大，差距越悬殊。这是 Key-Value 分离方案的核心代价。</strong></p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>B+ 树</th>
+<th>LSM（传统）</th>
+<th>LSM（Key-Value 分离）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>写放大</td>
+<td>低（2-3x）</td>
+<td>高（10-50x）</td>
+<td><strong>低（1-3x）</strong></td>
+</tr>
+<tr>
+<td>点查询</td>
+<td>3-4 IO</td>
+<td>1-多次 IO</td>
+<td><strong>1 IO（内存索引）</strong></td>
+</tr>
+<tr>
+<td>范围查询</td>
+<td><strong>快（聚簇索引）</strong></td>
+<td>中等</td>
+<td><strong>慢（随机 IO）</strong></td>
+</tr>
+<tr>
+<td>热点写入</td>
+<td>有局部热点</td>
+<td>均匀</td>
+<td><strong>均匀</strong></td>
+</tr>
+<tr>
+<td>SSD 寿命</td>
+<td>中等</td>
+<td>不友好</td>
+<td><strong>友好</strong></td>
+</tr>
+</tbody></table>
+<p><strong>结论：</strong></p>
+<ol>
+<li>SSD 普及初期，LSM 因写放大问题整体逊色于 B+ 树</li>
+<li>Key-Value 分离让 LSM 重新获得竞争力：写放大降低、内存索引解决读取问题、追加写对 SSD 寿命友好</li>
+<li>范围查询仍是 Key-Value 分离 LSM 的软肋，B+ 树聚簇索引在此场景下有明显优势</li>
+</ol>
+<p><strong>选型建议：</strong></p>
+<ul>
+<li>点查询为主 + 写入密集 → Key-Value 分离 LSM</li>
+<li>范围查询为主 + 读密集 → B+ 树聚簇索引</li>
+<li>混合场景 → 根据实际负载测试选择</li>
+</ul>
+<p>存储引擎的演进从未停止，LSM 和 B+ 树的边界也在逐渐模糊。理解各自优劣，才能在具体场景中做出正确选择。</p>
+<h2 id="引用"><a href="#引用" class="headerlink" title="引用"></a>引用</h2><ul>
+<li><a target="_blank" rel="noopener" href="https://www.usenix.org/conference/fast16/technical-sessions/presentation/lu">WiscKey: Separating Keys from Values in SSD-conscious Storage</a></li>
+<li><a target="_blank" rel="noopener" href="https://www.cs.umb.edu/~poneil/lsmtree.pdf">The Log-Structured Merge-Tree (LSM-Tree)</a></li>
+<li><a target="_blank" rel="noopener" href="https://github.com/facebook/rocksdb/wiki/BlobDB">RocksDB BlobDB</a></li>
+</ul>
+
+    </div>
+
+    
+    
+    
+        
+
+<div>
+<ul class="post-copyright">
+  <li class="post-copyright-author">
+    <strong>本文作者： </strong>汤瑞麟
+  </li>
+  <li class="post-copyright-link">
+    <strong>本文链接：</strong>
+    <a href="https://tangruilin.github.io/2026/03/23/SSD%E6%97%B6%E4%BB%A3%E4%B8%8BLSM%E4%B8%8EB+%E6%A0%91%E7%9A%84%E6%BC%94%E8%BF%9B%E5%AF%B9%E6%AF%94/" title="SSD时代下LSM与B+树的演进对比">https://tangruilin.github.io/2026/03/23/SSD时代下LSM与B+树的演进对比/</a>
+  </li>
+  <li class="post-copyright-license">
+    <strong>版权声明： </strong>本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="noopener" target="_blank"><i class="fab fa-fw fa-creative-commons"></i>BY-NC-SA</a> 许可协议。转载请注明出处！
+  </li>
+</ul>
+</div>
+
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/leveldb/" rel="tag"># leveldb</a>
+              <a href="/tags/storage/" rel="tag"># storage</a>
+              <a href="/tags/lsm/" rel="tag"># lsm</a>
+              <a href="/tags/b-tree/" rel="tag"># b-tree</a>
+              <a href="/tags/ssd/" rel="tag"># ssd</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2026/03/23/LevelDB%E7%9A%84%E6%9C%AA%E6%9D%A5%E6%BC%94%E8%BF%9B%E6%96%B9%E5%90%91/" rel="prev" title="LevelDB的未来演进方向">
+      <i class="fa fa-chevron-left"></i> LevelDB的未来演进方向
+    </a></div>
+      <div class="post-nav-item"></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#HDD-%E6%97%B6%E4%BB%A3%EF%BC%9ALSM-%E7%9A%84%E7%BB%9D%E5%AF%B9%E4%BC%98%E5%8A%BF"><span class="nav-number">2.</span> <span class="nav-text">HDD 时代：LSM 的绝对优势</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#SSD-%E6%97%B6%E4%BB%A3%EF%BC%9ALSM-%E4%BC%98%E5%8A%BF%E8%A2%AB%E5%89%8A%E5%BC%B1"><span class="nav-number">3.</span> <span class="nav-text">SSD 时代：LSM 优势被削弱</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#SSD-%E6%97%B6%E4%BB%A3%E5%88%9D%E6%AD%A5%E5%AF%B9%E6%AF%94"><span class="nav-number">3.1.</span> <span class="nav-text">SSD 时代初步对比</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%BD%AC%E6%9C%BA%EF%BC%9AKey-Value-%E5%88%86%E7%A6%BB"><span class="nav-number">4.</span> <span class="nav-text">转机：Key-Value 分离</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%86%99%E6%94%BE%E5%A4%A7%E5%A4%A7%E5%B9%85%E9%99%8D%E4%BD%8E"><span class="nav-number">4.1.</span> <span class="nav-text">写放大大幅降低</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%A4%9A%E4%B8%80%E6%AC%A1-IO%EF%BC%9F%E5%86%85%E5%AD%98%E7%B4%A2%E5%BC%95%E8%A7%A3%E5%86%B3"><span class="nav-number">4.2.</span> <span class="nav-text">多一次 IO？内存索引解决</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%83%AD%E7%82%B9%E5%86%99%E5%85%A5%EF%BC%9ALSM-%E7%9A%84%E7%8B%AC%E7%89%B9%E4%BC%98%E5%8A%BF"><span class="nav-number">4.3.</span> <span class="nav-text">热点写入：LSM 的独特优势</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%8C%83%E5%9B%B4%E6%9F%A5%E8%AF%A2%EF%BC%9ALSM-%E7%9A%84%E8%BD%AF%E8%82%8B"><span class="nav-number">5.</span> <span class="nav-text">范围查询：LSM 的软肋</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">6.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%BC%95%E7%94%A8"><span class="nav-number">7.</span> <span class="nav-text">引用</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">汤瑞麟</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">10</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">16</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2026</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">汤瑞麟</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+      <span class="post-meta-item-text">站点总字数：</span>
+    <span title="站点总字数">9k</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span class="post-meta-item-text">站点阅读时长 &asymp;</span>
+    <span title="站点阅读时长">34 分钟</span>
+</div>
+
+<!--
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Gemini</a> 强力驱动
+  </div>-->
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js"></script>
+  <script src="//cdn.jsdelivr.net/gh/fancyapps/fancybox@3/dist/jquery.fancybox.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+<script src="https://cdn.jsdelivr.net/npm/darkmode-js@1.5.7/lib/darkmode-js.min.js"></script>
+
+<script>
+var options = {
+  bottom: '64px',
+  right: 'unset',
+  left: '32px',
+  time: '0.5s',
+  mixColor: 'transparent',
+  backgroundColor: 'transparent',
+  buttonColorDark: '#100f2c',
+  buttonColorLight: '#fff',
+  saveInCookies: true,
+  label: '🌓',
+  autoMatchOsTheme: true
+}
+const darkmode = new Darkmode(options);
+window.darkmode = darkmode;
+darkmode.showWidget();
+</script>
+
+</body>
+</html>
